@@ -9,11 +9,12 @@ from transformers import TrainerCallback
 
 ### Parse Arguments
 parser = argparse.ArgumentParser()
-parser.add_argument("--model_id", type=str, default="microsoft/phi-2")
-parser.add_argument("--dataset", type=str, default="EleutherAI/wikitext_document_level")
-parser.add_argument("--subset", type=str, default="wikitext-103-raw-v1")
+parser.add_argument("--model_id", type=str, default="microsoft/phi-1")
+parser.add_argument("--tokenizer_id", type=str, default="neuralmind/bert-base-portuguese-cased")
+parser.add_argument("--dataset", type=str, default="eduagarcia/LegalPT_dedup")
+parser.add_argument("--subset", type=str, default="mlp_pt_eurlex-contracts")
 parser.add_argument("--output_dir", type=str, default="saved_model")
-parser.add_argument("--inject", choices=["BitLinear158", "BitLinear", "None"], default="BitLinear")
+parser.add_argument("--inject", choices=["BitLinear158", "BitLinear", "None"], default="BitLinear158")
 
 # DeepSpeed Arguments
 parser.add_argument("--train_args_file", type=str, default='--', help="")
@@ -25,9 +26,11 @@ args = parser.parse_args()
 
 ### Load Model
 model_id = args.model_id
+tokenizer_id = args.tokenizer_id
 
-tokenizer = AutoTokenizer.from_pretrained(model_id)
-tokenizer.pad_token = tokenizer.eos_token
+tokenizer = AutoTokenizer.from_pretrained(tokenizer_id)
+#tokenizer.pad_token = tokenizer.eos_token
+tokenizer.add_special_tokens({'pad_token': '[PAD]'})
 model = AutoModelForCausalLM.from_pretrained(
     model_id,
     torch_dtype=torch.float16,
@@ -38,13 +41,13 @@ num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 print("Number of parameters: ", num_params)
 
 ### Load Dataset
-ds = load_dataset(args.dataset, args.subset, split="train")
-val_ds = load_dataset(args.dataset, args.subset, split="test")
+ds = load_dataset(args.dataset, args.subset, split=f"train[95%:]", trust_remote_code=True)
+val_ds = load_dataset(args.dataset, args.subset, split=f"train[:5%]", trust_remote_code=True)
 def tokenize_function(examples):
-    return tokenizer(examples["page"], truncation=True, max_length=256)
+    return tokenizer(examples["text"], truncation=True, max_length=256)
 
-tokenized_datasets = ds.map(tokenize_function, batched=False, num_proc=32, remove_columns=["page"])
-tokenized_datasets_val = val_ds.map(tokenize_function, batched=False, num_proc=32, remove_columns=["page"])
+tokenized_datasets = ds.map(tokenize_function, batched=False, num_proc=32, remove_columns=["id", "text", "meta"])
+tokenized_datasets_val = val_ds.map(tokenize_function, batched=False, num_proc=32, remove_columns=["id", "text", "meta"])
 print(tokenized_datasets)
 
 ### Inject BitLinear layers
@@ -83,7 +86,7 @@ trainer = Trainer(
         save_steps=100,
         fp16=True,
         save_total_limit=3,
-        per_device_train_batch_size=2,
+        per_device_train_batch_size=4,
         eval_steps=100,
         evaluation_strategy="steps",
         logging_steps=10,

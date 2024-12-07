@@ -26,7 +26,7 @@ class BitLinear158(nn.Module):
     Weights are quantized to -1, 0, or +1 using an absmean quantization approach.
     """
 
-    def __init__(self, in_features, out_features, bias=True):
+    def __init__(self, in_features, out_features, bias=True, dtype=None):
         """
         Initializes the BitLinear layer.
 
